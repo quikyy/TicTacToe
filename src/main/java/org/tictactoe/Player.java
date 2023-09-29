@@ -1,6 +1,5 @@
-package org.example;
+package org.tictactoe;
 
-import java.util.ArrayList;
 import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
