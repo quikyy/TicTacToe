@@ -10,25 +10,72 @@ import java.util.Scanner;
 
 public class Game {
 	private final Board board = new Board();
+	private final Gamemode gamemode;
 	private final List<List<Integer>> winsCombinations = buildWinsCombinations();
 	private final List<Player> players;
+	private boolean gameEnd = false;
 	private Player winner;
 	private List<Integer> winnerWinCombination;
 	private final SecureRandom secureRandom = new SecureRandom();
 	private final Scanner sc = new Scanner(System.in);
 
-	public Game(boolean withComputer) {
-		players = buildPlayers(withComputer);
+	public Game(Gamemode gamemode) {
+		this.gamemode = gamemode;
+		this.players = buildPlayers(gamemode);
 	}
 
 	public void play() {
-		boolean gameEnd = false;
 
+		switch (gamemode) {
+			case PLAYER_VS_PLAYER -> playPlayerVsPlayer();
+			case PLAYER_VS_COMPUTER -> playPlayerVsComputer();
+			case COMPUTER_VS_COMPUTER -> playComputerVsComputer();
+		}
+		board.draw();
+		gameEndsMessage();
+	}
+
+
+	public void playPlayerVsPlayer() {
 		while (!gameEnd) {
 			for (Player player : players) {
 				gameEnd = checkIfTie();
 				if (gameEnd) {
-					System.out.println("Game ended as a tie");
+					break;
+				}
+				board.draw();
+				boolean isPlayerTookAvailableField = false;
+				while (!isPlayerTookAvailableField) {
+					System.out.println("Turn: " + player.getSign());
+					System.out.print("Please choice available field: ");
+					String playerInput = sc.next();
+					int playerFieldChoice = 0;
+					try {
+						playerFieldChoice = Integer.parseInt(playerInput);
+					} catch (NumberFormatException ignored) {}
+
+					if (playerFieldChoice < 1 || playerFieldChoice > 9) {
+						continue;
+					}
+					isPlayerTookAvailableField = board.takeField(playerFieldChoice, player);
+					if (!isPlayerTookAvailableField) {
+						System.out.println("Field: " + playerFieldChoice + " is already taken");
+					}
+				}
+				checkIfPlayerWonGame(player);
+				if (Objects.nonNull(winner)) {
+					gameEnd = true;
+					break;
+				}
+			}
+		}
+	}
+
+	public void playPlayerVsComputer() {
+		while (!gameEnd) {
+			for (Player player : players) {
+				gameEnd = checkIfTie();
+				if (gameEnd) {
 					break;
 				}
 				board.draw();
@@ -53,14 +100,8 @@ public class Game {
 						if (!isPlayerTookAvailableField) {
 							System.out.println("Field: " + playerFieldChoice + " is already taken");
 						}
-
-						if (Objects.nonNull(winner)) {
-							gameEnd = true;
-							break;
-						}
 					}
 				}
-
 				checkIfPlayerWonGame(player);
 				if (Objects.nonNull(winner)) {
 					gameEnd = true;
@@ -68,8 +109,30 @@ public class Game {
 				}
 			}
 		}
-		board.draw();
-		gameEndsMessage();
+	}
+
+	public void playComputerVsComputer() {
+		while (!gameEnd) {
+			for (Player player : players) {
+				gameEnd = checkIfTie();
+				if (gameEnd) {
+					break;
+				}
+				board.draw();
+				System.out.println("Turn: " + player.getSign());
+				choiceFieldsComputerVsComputer(player);
+				try {
+					Thread.sleep(1000);
+				} catch (InterruptedException e) {
+					throw new RuntimeException(e);
+				}
+				checkIfPlayerWonGame(player);
+				if (Objects.nonNull(winner)) {
+					gameEnd = true;
+					break;
+				}
+			}
+		}
 	}
 
 	private void choiceFieldComputer() {
@@ -84,7 +147,6 @@ public class Game {
 		if (computer == null || opponent == null) {
 			return;
 		}
-
 
 		List<Integer> availableFields = board.getAvailableFields();
 		int computerChoice = 0;
@@ -131,6 +193,67 @@ public class Game {
 		int randomInt = secureRandom.nextInt(availableFields.size());
 		computerChoice = availableFields.get(randomInt);
 		board.takeField(computerChoice, computer);
+	}
+
+	private void choiceFieldsComputerVsComputer(Player computerPlayer) {
+		Player computerCurrentPlayer = players.stream()
+				.filter(c -> c == computerPlayer)
+				.findFirst()
+				.orElse(null);
+		Player opponentComputerPlayer = players.stream()
+				.filter(c -> c != computerPlayer)
+				.findFirst()
+				.orElse(null);
+
+		if (computerCurrentPlayer == null || opponentComputerPlayer == null) {
+			return;
+		}
+
+		List<Integer> availableFields = board.getAvailableFields();
+		int computerChoice = 0;
+
+		// Computer moves as first and will take corner field
+		if (availableFields.size() == 9) {
+			computerChoice = choiceCornerField();
+			board.takeField(computerChoice, computerCurrentPlayer);
+			return;
+		}
+
+		// Opponent moved first, check if he picked center field. If no - pick center field
+		if (availableFields.size() == 8) {
+			Player playerWhoTookCentreField = board.getTakenFields().get(5);
+			if (playerWhoTookCentreField == opponentComputerPlayer) {
+				board.takeField(choiceCornerField(), computerCurrentPlayer);
+			} else {
+				board.takeField(5, computerCurrentPlayer);
+			}
+			return;
+		}
+
+		// Win the game if possible
+		computerChoice = winMove(computerCurrentPlayer);
+		if (computerChoice != 0) {
+			board.takeField(computerChoice, computerCurrentPlayer);
+			return;
+		}
+
+		// Defend if player has 2 fields taken in any win combination
+		computerChoice = defendMove(opponentComputerPlayer);
+		if (computerChoice != 0) {
+			board.takeField(computerChoice, computerCurrentPlayer);
+			return;
+		}
+
+		computerChoice = analyzeWinCombinations(computerCurrentPlayer, opponentComputerPlayer);
+		if (computerChoice != 0) {
+			board.takeField(computerChoice, computerCurrentPlayer);
+			return;
+		}
+
+		// Computer had no idea what to do. Computer picked random available field
+		int randomInt = secureRandom.nextInt(availableFields.size());
+		computerChoice = availableFields.get(randomInt);
+		board.takeField(computerChoice, computerCurrentPlayer);
 	}
 
 	private int winMove(Player computer) {
@@ -255,22 +378,31 @@ public class Game {
 	}
 
 	private void gameEndsMessage() {
-		if (winner.isComputer()) {
+		if (winner == null) {
+			System.out.println("Game ended as a tie.");
+		}
+		else if (winner.isComputer()) {
 			System.out.println("Computer has won the game. Win combination: " + winnerWinCombination);
 		} else {
 			System.out.println("Player with " + winner.getSign() + " sign has won the game. Win combination: " + winnerWinCombination);
 		}
 	}
 
-	private List<Player> buildPlayers(boolean withComputer) {
-		Player p1 = new Player("X", false);
-		Player secondPlayer;
-		if (withComputer) {
-			secondPlayer = new Player("O", true);
-		} else {
-			secondPlayer = new Player("O", false);
+	private List<Player> buildPlayers(Gamemode gamemode) {
+		List<Player> currPlayers = new ArrayList<>(
+				List.of
+						(new Player("X", false),
+						(new Player("O", false))));
+
+		switch (gamemode) {
+			case PLAYER_VS_COMPUTER -> {
+				Player computerPlayer = currPlayers.get(1);
+				computerPlayer.setComputer(true);
+			}
+			case COMPUTER_VS_COMPUTER -> {
+				currPlayers.forEach(player -> player.setComputer(true));
+			}
 		}
-		List<Player> currPlayers = new ArrayList<>(List.of(p1, secondPlayer));
 		Collections.shuffle(currPlayers);
 		return currPlayers;
 	}

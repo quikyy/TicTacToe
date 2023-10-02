@@ -39,9 +39,6 @@ public class Board {
 			takenFields.put(fieldId, player);
 			player.getFieldsTaken().add(fieldId);
 			buildAvailableFields();
-			if (player.isComputer()) {
-				System.out.println("Computer choice: " + fieldId);
-			}
 			return true;
 		}
 		return false;
